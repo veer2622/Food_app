@@ -87,25 +87,34 @@ def register(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Register With same email not allow")
 
     if profile_pic:
-        pic= profile_pic.filename
+        filepath= os.path.join(UPLOAD_DIR,name,profile_pic.filename)
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+
+        with open(filepath, "wb") as buffer:
+            shutil.copyfileobj(profile_pic.file, buffer)
     else:
-        pic = None
+        filepath = None
+
+
+    user=User(
+        user_role=UserRole.CUSTOMER,
+        name=name,
+        number=number,
+        email=email,
+        password=Hash.hashing(password),
+        profile_pic=filepath
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
 
     otp = generate_otp()
 
     save_otp(email, otp)
 
-    user_data = {
-        "name": name,
-        "number": number,
-        "email": email,
-        "password": password,
-        "profile_pic": pic
-    }
-
     redis_client.set(
         f"pending:{email}",
-        json.dumps(user_data),
+        "1",
         ex=600
     )
 
@@ -132,38 +141,21 @@ def verify_registration(request:verify_user,db: Session = Depends(get_db)):
             detail="Registration expired"
         )
 
-    user_data = json.loads(data)
+    query= db.query(User).filter(User.email==request.email).first()
+
+    if not query:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found with this email")
+    query.is_varified=True
 
 
-    # Step 3: Save the uploaded file
-    if user_data['profile_pic'] != None:    
-        filepath = os.path.join(UPLOAD_DIR,user_data["name"],user_data["profile_pic"])
-    else:
-        filepath= None
-
-    # with open(filepath, "wb") as buffer:
-    #     shutil.copyfileobj(profile_pic.file, buffer)
-
-    # Create user
-    new_user = User(
-        user_role=UserRole.CUSTOMER,
-        name=user_data["name"],
-        number=user_data["number"],
-        email=user_data["email"],
-        password=Hash.hashing(user_data["password"]),
-        profile_pic=filepath,
-    )
-
-
-    db.add(new_user)
     db.commit()
-    db.refresh(new_user)
+    db.refresh(query)
     
     redis_client.delete(f"pending:{request.email}")
         
     return {
         "message": "Registration Done",
-        "data": new_user
+        "data": query
     }
 
 @router.post("/admin")
@@ -188,86 +180,36 @@ def admin_register(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Register With same email not allow")
 
     if profile_pic:
-        pic= profile_pic.filename
+        filepath= os.path.join(UPLOAD_DIR,name,profile_pic.filename)
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+
+        with open(filepath, "wb") as buffer:
+            shutil.copyfileobj(profile_pic.file, buffer)
     else:
-        pic = None
+        filepath = None
+
+    user=User(
+        user_role=UserRole.ADMIN,
+        name=name,
+        number=number,
+        email=email,
+        password=Hash.hashing(password),
+        profile_pic=filepath
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
 
     otp = generate_otp()
-
     save_otp(email, otp)
-
-    user_data = {
-        "name": name,
-        "number": number,
-        "email": email,
-        "password": password,
-        "profile_pic": pic
-    }
 
     redis_client.set(
         f"pending:{email}",
-        json.dumps(user_data),
+        '1',
         ex=600
     )
 
-
     return {"message": "OTP sent on ur email"}
-
-@router.post("/verify-")
-def verify_registration(request:verify_user,db: Session = Depends(get_db)):
-
-    is_valid = verify_otp(request.email, request.otp)
-    
-    if not is_valid:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid or expired OTP"
-        )
-
-    # Get temporary user data
-    data = redis_client.get(f"pending:{request.email}")
-
-    if not data:
-        raise HTTPException(
-            status_code=400,
-            detail="Registration expired"
-        )
-
-    user_data = json.loads(data)
-
-
-    # Step 3: Save the uploaded file
-    if user_data['profile_pic'] != None:    
-        filepath = os.path.join(UPLOAD_DIR,user_data["name"],user_data["profile_pic"])
-    else:
-        filepath= None
-
-    # with open(filepath, "wb") as buffer:
-    #     shutil.copyfileobj(profile_pic.file, buffer)
-
-    # Create user
-    new_user = User(
-        user_role=UserRole.ADMIN,
-        name=user_data["name"],
-        number=user_data["number"],
-        email=user_data["email"],
-        password=Hash.hashing(user_data["password"]),
-        profile_pic=filepath,
-    )
-
-
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-    
-    redis_client.delete(f"pending:{request.email}")
-        
-    return {
-        "message": "Registration Done",
-        "data": new_user
-    }
-
-
 
 # @router.post("/register-user")
 # def register_user(
