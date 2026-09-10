@@ -36,7 +36,7 @@ class User(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     is_active = Column(Boolean, default=True)
-    is_varified = Column(Boolean, default=True)
+    is_varified = Column(Boolean, default=False)
     resturent = relationship("Resturants", back_populates="owner",passive_deletes=True)
     cart =relationship("Cart", back_populates="customers")
     addresses = relationship("Address",back_populates="customers",cascade="all, delete-orphan")
