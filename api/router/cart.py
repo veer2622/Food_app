@@ -13,31 +13,41 @@ from decimal import Decimal
 
 router = APIRouter(tags= ["Cart"])
 
-@router.post("/add-cart")
-def add_cart( db:Session=Depends(get_db), current_user:userProfile=Depends(verify_access_token)):
+# @router.post("/add-cart")
+# def add_cart( db:Session=Depends(get_db), current_user:userProfile=Depends(verify_access_token)):
 
-    customer = get_current_customer(db, current_user)
+#     customer = get_current_customer(db, current_user)
     
-    cart=db.query(Cart).filter(Cart.customer_id== customer.id,Cart.status == CartStatus.ACTIVE).first()
-    if cart:
-        raise HTTPException(status_code=400, detail="Cart already exists for this user")
+#     cart=db.query(Cart).filter(Cart.customer_id== customer.id,Cart.status == CartStatus.ACTIVE).first()
+#     if cart:
+#         raise HTTPException(status_code=400, detail="Cart already exists for this user")
     
-    new_cart=Cart(customer_id = customer.id, status = CartStatus.ACTIVE)
-    db.add(new_cart)
-    db.commit()
-    db.refresh(new_cart)
+#     new_cart=Cart(customer_id = customer.id, status = CartStatus.ACTIVE)
+#     db.add(new_cart)
+#     db.commit()
+#     db.refresh(new_cart)
 
-    return {
-        "message": "Cart created successfully",
-        "cart_id": new_cart.id,
-        "customer_id": new_cart.customer_id,
-        "status": new_cart.status
-    }
+#     return {
+#         "message": "Cart created successfully",
+#         "cart_id": new_cart.id,
+#         "customer_id": new_cart.customer_id,
+#         "status": new_cart.status
+#     }
     
 @router.post("/add_to Cart")
 def add_to_cart(request:Add_Cart_Item, db:Session=Depends(get_db), current_user:userProfile=Depends(verify_access_token)):
 
     customer= get_current_customer(db, current_user)
+    # cart=db.query(Cart).filter(Cart.customer_id== customer.id,Cart.status == CartStatus.ACTIVE).first()
+    # if cart:
+    #     raise HTTPException(status_code=400, detail="Cart already exists for this user")
+    
+    # TO make New Cart
+    new_cart=Cart(customer_id = customer.id, status = CartStatus.ACTIVE)
+    db.add(new_cart)
+    db.commit()
+    db.refresh(new_cart)
+
     
     if request.quantity <= 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Quantity must be greater than zero")
@@ -46,8 +56,7 @@ def add_to_cart(request:Add_Cart_Item, db:Session=Depends(get_db), current_user:
     if not food:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="food not found")
     
-    cart = db.query(Cart).filter(Cart.id == request.cart_id, 
-                                Cart.customer_id == customer.id, 
+    cart = db.query(Cart).filter(Cart.customer_id == customer.id, 
                                 Cart.status == CartStatus.ACTIVE).first()
     
     if not cart:

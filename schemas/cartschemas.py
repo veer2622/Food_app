@@ -4,7 +4,6 @@ class Add_Cart(BaseModel):
     customer_id:int
     
 class Add_Cart_Item(BaseModel):
-    cart_id:int
     food_id:int
     quantity:int =  Field(gt=0)
 

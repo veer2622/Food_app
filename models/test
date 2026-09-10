@@ -1,0 +1,53 @@
+Q=16
+stmt = (
+    select(User)
+    .join(User.orders)
+    .where(Order.amount > 5000)
+    .distinct()
+)
+
+users = db.scalars(stmt).all()
+
+Q=17
+stmt=(select(User).join(User.orders).where(User.is_active == True, Order.amount > 5000).distinct())
+user= db.scalars(stmt).all()
+
+Q=18
+stmt = (select(User).join(User.orders).where(Order.status=="completed").distinct())
+user= db.scalars(stmt).all()
+
+Q=19
+stmt = (select(User).join(User.orders).where(User.is_active == True, User.age > 18, Order.status=="completed").distinct())
+user= db.scalars(stmt).all()
+
+Q=20
+stmt=(select(User).join(User.orders).where(Order.amount>=1000, Order.amount <= 5000).distinct())
+user= db.scalars(stmt).all()
+
+OR
+stmt=(select(User).join(User.orders).where(Order.amount.between(1000,5000)).distinct())
+user= db.scalars(stmt).all()
+
+Q=21
+stmt=(select(User).join(User.orders).where(or_(Order.amount > 5000,Order.status=="completed")).distinct())
+user= db.scalars(stmt).all()
+
+Q-22
+stmt = (select(User).outerjoin(User.orders).where(Order.id.is_(None)))
+user = db.scalars(stmt).all()
+
+Q=23
+stmt=(select(User.name, func.count(Order.id)).join(User.orders).group_by(User.id,User.name))
+user=db.execute(stmt).all()
+
+Q-24
+stmt = (select(User.name, func.count(Order.id)).join(User.orders).group_by(User.id, User.name).having(func.count(Order.id)>3))
+user  = db.execute(stmt).all()
+
+Q-25
+stmt = (select(User.name, func.sum(Order.amount).label("Total")).join(User.orders).group_by(User.id,User.name))
+user = db.execute(stmt).all()
+
+q-26
+stmt = (select(User.name, func.count(Order.id)).join(User.orders).group_by(User.id, User.name))
+user = db.execute(stmt).all()

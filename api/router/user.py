@@ -1,7 +1,7 @@
 import os, random, shutil, json, re
 from fastapi import APIRouter,Depends,HTTPException,status, UploadFile, File, Form, Request
 from core.database import get_db, Base
-# from core.redis import save_otp, verify_otp, redis_client
+from core.redis import save_otp, verify_otp, redis_client
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from schemas import *
@@ -17,90 +17,7 @@ def generate_otp():
     return str(random.randint(100000,999999))
 
 UPLOAD_DIR = "uploads/profile"
-# os.makedirs(UPLOAD_DIR, exist_ok=True)
-
-
-# @router.post("/register")
-# def register(
-#     name: str = Form(...),
-#     number: str = Form(...),
-#     email: str = Form(...),
-#     password: str = Form(...),
-#     profile_pic: UploadFile = File(...),
-#     db: Session = Depends(get_db),
-# ):
-
-
-#     otp = generate_otp()
-
-#     save_otp(email, otp)
-    
-#     user_data = {
-#         "name": name,
-#         "number": number,
-#         "email": email,
-#         "password": password,
-#         "profile_pic": profile_pic.filename
-#     }
-
-#     redis_client.set(
-#         f"pending:{email}",
-#         json.dumps(user_data),
-#         ex=600
-#     )
-
-
-#     return {"message": "OTP sent on ur email"}
-
-# @router.post("/verify-")
-# def verify_registration(request:verify_user,db: Session = Depends(get_db)):
-
-#     is_valid = verify_otp(request.email, request.otp)
-    
-#     if not is_valid:
-#         raise HTTPException(
-#             status_code=400,
-#             detail="Invalid or expired OTP"
-#         )
-
-#     # Get temporary user data
-#     data = redis_client.get(f"pending:{request.email}")
-
-#     if not data:
-#         raise HTTPException(
-#             status_code=400,
-#             detail="Registration expired"
-#         )
-
-#     user_data = json.loads(data)
-
-
-#     # Step 3: Save the uploaded file
-#     filepath = os.path.join(UPLOAD_DIR/user_data["name"],user_data["profile_pic"])
-
-#     # with open(filepath, "wb") as buffer:
-#     #     shutil.copyfileobj(profile_pic.file, buffer)
-
-#     # Create user
-#     new_user = User(
-#         name=user_data["name"],
-#         number=user_data["number"],
-#         email=user_data["email"],
-#         password=user_data["password"],
-#         profile_pic=filepath,
-#     )
-
-
-#     db.add(new_user)
-#     db.commit()
-#     db.refresh(new_user)
-    
-#     redis_client.delete(f"pending:{request.email}")
-        
-#     return {
-#         "message": "Registration Done"
-#     }
-
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 #--------------------------------------------------------------------------------------------------------------------------------------------
 #--------------------------------------------------------------------------------------------------------------------------------------------
@@ -147,101 +64,306 @@ def validate_password(password: str):
 #--------------------------------------------------------------------------------------------------------------------------------------------
 #--------------------------------------------------------------------------------------------------------------------------------------------
 
-@router.post("/register-user")
-def register_user(
+
+@router.post("/register")
+def register(
     name: str = Form(...),
     number: str = Form(...),
     email: str = Form(...),
     password: str = Form(...),
     profile_pic: Optional[UploadFile] = File(None),
-    # profile_pic: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
 
     validate_number(number)
     validate_password(password)
+
+    existing_user = db.query(User).filter(User.number == number).first()   
+    if existing_user:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Register With same number not allow")
+
+    existing_user = db.query(User).filter(User.email == email).first()   
+    if existing_user:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Register With same email not allow")
+
     if profile_pic:
-        filepath = os.path.join(UPLOAD_DIR,name,profile_pic.filename)
-        os.makedirs(os.path.dirname(filepath), exist_ok=True)
-
-        with open(filepath, "wb") as buffer:
-            shutil.copyfileobj(profile_pic.file, buffer)
+        pic= profile_pic.filename
     else:
-        filepath =  None            
-    try:
-        existing_user = db.query(User).filter(User.number == number).first()
-           
-        if existing_user:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Register With same number not allow")
-   
-        new_user = User(
-            user_role=UserRole.CUSTOMER,
-            name=name,
-            number=number,
-            email=email,
-            password=Hash.hashing(password),
-            profile_pic=filepath
-        )
+        pic = None
 
-        db.add(new_user)
-        db.commit()
-        db.refresh(new_user)
-        
-    except IntegrityError:
-        db.rollback()
+    otp = generate_otp()
 
+    save_otp(email, otp)
+
+    user_data = {
+        "name": name,
+        "number": number,
+        "email": email,
+        "password": password,
+        "profile_pic": pic
+    }
+
+    redis_client.set(
+        f"pending:{email}",
+        json.dumps(user_data),
+        ex=600
+    )
+
+
+    return {"message": "OTP sent on ur email"}
+
+@router.post("/verify")
+def verify_registration(request:verify_user,db: Session = Depends(get_db)):
+
+    is_valid = verify_otp(request.email, request.otp)
+    
+    if not is_valid:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="This number is already registered"
+            status_code=400,
+            detail="Invalid or expired OTP"
         )
+
+    # Get temporary user data
+    data = redis_client.get(f"pending:{request.email}")
+
+    if not data:
+        raise HTTPException(
+            status_code=400,
+            detail="Registration expired"
+        )
+
+    user_data = json.loads(data)
+
+
+    # Step 3: Save the uploaded file
+    if user_data['profile_pic'] != None:    
+        filepath = os.path.join(UPLOAD_DIR,user_data["name"],user_data["profile_pic"])
+    else:
+        filepath= None
+
+    # with open(filepath, "wb") as buffer:
+    #     shutil.copyfileobj(profile_pic.file, buffer)
+
+    # Create user
+    new_user = User(
+        user_role=UserRole.CUSTOMER,
+        name=user_data["name"],
+        number=user_data["number"],
+        email=user_data["email"],
+        password=Hash.hashing(user_data["password"]),
+        profile_pic=filepath,
+    )
+
+
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    
+    redis_client.delete(f"pending:{request.email}")
         
-    return new_user
+    return {
+        "message": "Registration Done",
+        "data": new_user
+    }
 
 @router.post("/admin")
-def register_admin(
+def admin_register(
     name: str = Form(...),
     number: str = Form(...),
     email: str = Form(...),
     password: str = Form(...),
-    profile_pic: UploadFile = File(...),
+    profile_pic: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
 ):
 
     validate_number(number)
     validate_password(password)
-    filepath = os.path.join(UPLOAD_DIR,name,profile_pic.filename)
-    os.makedirs(os.path.dirname(filepath), exist_ok=True)
 
-    with open(filepath, "wb") as buffer:
-        shutil.copyfileobj(profile_pic.file, buffer)
-    try:
-        existing_user = db.query(User).filter(User.number == number).first()
-           
-        if existing_user:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Register With same number not allow")
+    existing_user = db.query(User).filter(User.number == number).first()   
+    if existing_user:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Register With same number not allow")
+
+    existing_user = db.query(User).filter(User.email == email).first()   
+    if existing_user:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Register With same email not allow")
+
+    if profile_pic:
+        pic= profile_pic.filename
+    else:
+        pic = None
+
+    otp = generate_otp()
+
+    save_otp(email, otp)
+
+    user_data = {
+        "name": name,
+        "number": number,
+        "email": email,
+        "password": password,
+        "profile_pic": pic
+    }
+
+    redis_client.set(
+        f"pending:{email}",
+        json.dumps(user_data),
+        ex=600
+    )
+
+
+    return {"message": "OTP sent on ur email"}
+
+@router.post("/verify-")
+def verify_registration(request:verify_user,db: Session = Depends(get_db)):
+
+    is_valid = verify_otp(request.email, request.otp)
     
-        new_user = User(
-            user_role=UserRole.ADMIN,
-            name=name,
-            number=number,
-            email=email,
-            password=Hash.hashing(password),
-            profile_pic=filepath
-        )
-
-        db.add(new_user)
-        db.commit()
-        db.refresh(new_user)
-        
-    except IntegrityError:
-        db.rollback()
-
+    if not is_valid:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="This number is already registered"
+            status_code=400,
+            detail="Invalid or expired OTP"
         )
+
+    # Get temporary user data
+    data = redis_client.get(f"pending:{request.email}")
+
+    if not data:
+        raise HTTPException(
+            status_code=400,
+            detail="Registration expired"
+        )
+
+    user_data = json.loads(data)
+
+
+    # Step 3: Save the uploaded file
+    if user_data['profile_pic'] != None:    
+        filepath = os.path.join(UPLOAD_DIR,user_data["name"],user_data["profile_pic"])
+    else:
+        filepath= None
+
+    # with open(filepath, "wb") as buffer:
+    #     shutil.copyfileobj(profile_pic.file, buffer)
+
+    # Create user
+    new_user = User(
+        user_role=UserRole.ADMIN,
+        name=user_data["name"],
+        number=user_data["number"],
+        email=user_data["email"],
+        password=Hash.hashing(user_data["password"]),
+        profile_pic=filepath,
+    )
+
+
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
     
-    return new_user
+    redis_client.delete(f"pending:{request.email}")
+        
+    return {
+        "message": "Registration Done",
+        "data": new_user
+    }
+
+
+
+# @router.post("/register-user")
+# def register_user(
+#     name: str = Form(...),
+#     number: str = Form(...),
+#     email: str = Form(...),
+#     password: str = Form(...),
+#     profile_pic: Optional[UploadFile] = File(None),
+#     # profile_pic: UploadFile = File(...),
+#     db: Session = Depends(get_db),
+# ):
+
+#     validate_number(number)
+#     validate_password(password)
+#     if profile_pic:
+#         filepath = os.path.join(UPLOAD_DIR,name,profile_pic.filename)
+#         os.makedirs(os.path.dirname(filepath), exist_ok=True)
+
+#         with open(filepath, "wb") as buffer:
+#             shutil.copyfileobj(profile_pic.file, buffer)
+#     else:
+#         filepath =  None            
+#     try:
+#         existing_user = db.query(User).filter(User.number == number).first()
+           
+#         if existing_user:
+#             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Register With same number not allow")
+   
+#         new_user = User(
+#             user_role=UserRole.CUSTOMER,
+#             name=name,
+#             number=number,
+#             email=email,
+#             password=Hash.hashing(password),
+#             profile_pic=filepath
+#         )
+
+#         db.add(new_user)
+#         db.commit()
+#         db.refresh(new_user)
+        
+#     except IntegrityError:
+#         db.rollback()
+
+#         raise HTTPException(
+#             status_code=status.HTTP_403_FORBIDDEN,
+#             detail="This number is already registered"
+#         )
+        
+#     return new_user
+
+# @router.post("/admin1")
+# def register_admin(
+#     name: str = Form(...),
+#     number: str = Form(...),
+#     email: str = Form(...),
+#     password: str = Form(...),
+#     profile_pic: UploadFile = File(...),
+#     db: Session = Depends(get_db),
+# ):
+
+#     validate_number(number)
+#     validate_password(password)
+#     filepath = os.path.join(UPLOAD_DIR,name,profile_pic.filename)
+#     os.makedirs(os.path.dirname(filepath), exist_ok=True)
+
+#     with open(filepath, "wb") as buffer:
+#         shutil.copyfileobj(profile_pic.file, buffer)
+#     try:
+#         existing_user = db.query(User).filter(User.number == number).first()
+           
+#         if existing_user:
+#             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Register With same number not allow")
+    
+#         new_user = User(
+#             user_role=UserRole.ADMIN,
+#             name=name,
+#             number=number,
+#             email=email,
+#             password=Hash.hashing(password),
+#             profile_pic=filepath
+#         )
+
+#         db.add(new_user)
+#         db.commit()
+#         db.refresh(new_user)
+        
+#     except IntegrityError:
+#         db.rollback()
+
+#         raise HTTPException(
+#             status_code=status.HTTP_403_FORBIDDEN,
+#             detail="This number is already registered"
+#         )
+    
+#     return new_user
  
 @router.post("/login")
 def login(request:login_responce, db:Session=Depends(get_db)):
