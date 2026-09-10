@@ -1,5 +1,5 @@
 import os, random, shutil, json, re
-from fastapi import APIRouter,Depends,HTTPException,status, UploadFile, File, Form, Request
+from fastapi import APIRouter,Depends,HTTPException,status, UploadFile, File, Form, Request, BackgroundTasks
 from core.database import get_db, Base
 from core.redis import save_otp, verify_otp, redis_client
 from sqlalchemy.orm import Session
@@ -7,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from schemas import *
 from models import *
 from utils.jwt import Hash,create_access_token, verify_access_token
+from utils.email import send_OTP_email,send_Success_registration_email,send_Success_update_password_email
 from typing import List,Optional
 from pydantic import Field, field_validator
 
@@ -67,6 +68,7 @@ def validate_password(password: str):
 
 @router.post("/register")
 def register(
+    background_tasks: BackgroundTasks,
     name: str = Form(...),
     number: str = Form(...),
     email: str = Form(...),
@@ -118,10 +120,16 @@ def register(
         ex=600
     )
 
+    background_tasks.add_task(
+        send_OTP_email,
+        user.email,
+        otp
+    )
+
     return {"message": "OTP sent on ur email"}
 
 @router.post("/verify")
-def verify_registration(request:verify_user,db: Session = Depends(get_db)):
+def verify_registration(request:verify_user,background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
 
     is_valid = verify_otp(request.email, request.otp)
     
@@ -132,13 +140,13 @@ def verify_registration(request:verify_user,db: Session = Depends(get_db)):
         )
 
     # Get temporary user data
-    data = redis_client.get(f"pending:{request.email}")
+    # data = redis_client.get(f"pending:{request.email}")
 
-    if not data:
-        raise HTTPException(
-            status_code=400,
-            detail="Registration expired"
-        )
+    # if not data:
+    #     raise HTTPException(
+    #         status_code=400,
+    #         detail="Registration expired"
+    #     )
 
     query= db.query(User).filter(User.email==request.email).first()
 
@@ -151,6 +159,12 @@ def verify_registration(request:verify_user,db: Session = Depends(get_db)):
     db.refresh(query)
     
     redis_client.delete(f"pending:{request.email}")
+
+    background_tasks.add_task(
+        send_Success_registration_email,
+        query.email,
+        query.name 
+    )
         
     return {
         "message": "Registration Done",
@@ -308,7 +322,7 @@ def admin_register(
  
 
 @router.post("/forgot-pass")
-def forgot_password(request:forgot_pass,db:Session=Depends(get_db)):
+def forgot_password(request:forgot_pass,background_tasks: BackgroundTasks, db:Session=Depends(get_db)):
 
     user=db.query(User).filter(User.email == request.email).first()
 
@@ -322,6 +336,12 @@ def forgot_password(request:forgot_pass,db:Session=Depends(get_db)):
         f"pending:{request.email}",
         "1",
         ex=600
+    )
+
+    background_tasks.add_task(
+        send_OTP_email,
+        user.email,
+        otp
     )
 
     return {"message": f"OTP sent on Your {request.email} address"}
@@ -344,7 +364,7 @@ def verify_forgot_password_otp(request:varify_otp, db:Session = Depends(get_db))
     }
 
 @router.post("/reset-password")
-def reset_password(request:reset_otp, db:Session=Depends(get_db)):
+def reset_password(request:reset_otp,background_tasks: BackgroundTasks, db:Session=Depends(get_db)):
 
     user= db.query(User).filter(User.email==request.email).first()
     if not user:
@@ -356,6 +376,10 @@ def reset_password(request:reset_otp, db:Session=Depends(get_db)):
     user.password=Hash.hashing(request.password)
     db.commit()
 
+    background_tasks.add_task(
+        send_Success_update_password_email,
+        user.email,
+    )
     return {
         "message": "password Update Successfully",
         "status": status.HTTP_200_OK
