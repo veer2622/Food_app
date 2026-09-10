@@ -118,7 +118,6 @@ def register(
         ex=600
     )
 
-
     return {"message": "OTP sent on ur email"}
 
 @router.post("/verify")
@@ -307,6 +306,61 @@ def admin_register(
     
 #     return new_user
  
+
+@router.post("/forgot-pass")
+def forgot_password(request:forgot_pass,db:Session=Depends(get_db)):
+
+    user=db.query(User).filter(User.email == request.email).first()
+
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Email not Exsist")
+
+    otp = generate_otp()
+    save_otp(request.email, otp)
+
+    redis_client.set(
+        f"pending:{request.email}",
+        "1",
+        ex=600
+    )
+
+    return {"message": f"OTP sent on Your {request.email} address"}
+
+@router.post("/verify-otp")
+def verify_forgot_password_otp(request:varify_otp, db:Session = Depends(get_db)):
+    email = request.email
+    otp = request.otp
+    print("values:",email, otp)
+    is_valid = verify_otp(request.email, request.otp)
+    print("here")
+    if not is_valid:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid or expired OTP"
+        )
+
+    return {
+        "message":"Otp Varify Successfully"
+    }
+
+@router.post("/reset-password")
+def reset_password(request:reset_otp, db:Session=Depends(get_db)):
+
+    user= db.query(User).filter(User.email==request.email).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="user not found")
+
+    if(request.password != request.confirm_password):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="password missmatched")
+
+    user.password=Hash.hashing(request.password)
+    db.commit()
+
+    return {
+        "message": "password Update Successfully",
+        "status": status.HTTP_200_OK
+    }
+
 @router.post("/login")
 def login(request:login_responce, db:Session=Depends(get_db)):
     user = db.query(User).filter(User.email==request.username).first()
@@ -317,8 +371,8 @@ def login(request:login_responce, db:Session=Depends(get_db)):
     if not Hash.verify(request.password, user.password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalied  password")
     
-    if user.is_active==False:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="user not active")
+    if user.is_active==False | user.is_varified==False:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="user not active/Varified")
      
     # if not user.user_role== UserRole.CUSTOMER:
     #     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only Registered Customer Allow")  
@@ -366,7 +420,3 @@ def delete_user_profile(db:Session=Depends(get_db), current_user:userresponce=De
     db.commit()
     
     return {"message": "Profile deleted"}
-
-
-
-                                 

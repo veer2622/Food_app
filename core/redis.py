@@ -25,6 +25,7 @@ def save_otp(email: str, otp: str):
 
 
 def verify_otp(email: str, sent_otp: str):
+    print("Here in Varify OTP")
     key = f"otp:{email}"
 
     otp = redis_client.get(key)
